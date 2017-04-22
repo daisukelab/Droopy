@@ -1,4 +1,29 @@
+# DroopyPlus
+### Easy File Processing
+This is a forked project of stackp/Droopy with enhanced for data processing prototyping on simple web interface.
+Copyright simply follows the original.
+
+Copyright 2008-2013 (c) Pierre Duquesne <stackp@online.fr>
+Licensed under the New BSD License.
+Originally shared at [Pierre's Blog, stackp.online.fr](http://stackp.online.fr/droopy).
+
+### Basic Usage
+- Write your process job
+1. Create a folder to store processed files. ex.) mkdir ./processed
+2. Write your code to process inputs in myprocess.py.
+   DroppyPlus will call the do_my_process function with list of input files uploaded.
+- Start DroopyPlus and ready for your job
+Start DroopyPlus, for example:
+
+    python3 ~/bin/droopy -m "Feed your data files, this will process them now."
+
+Then you and your colleague in local network can use `http://localhost:8000`,
+and make them process your data.
+
+---
+
 # Droopy
+
 ### Easy File Sharing
 Copyright 2008-2013 (c) Pierre Duquesne <stackp@online.fr>
 Licensed under the New BSD License.

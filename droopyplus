@@ -6,6 +6,7 @@ Copyright 2008-2013 (c) Pierre Duquesne <stackp@online.fr>
 Licensed under the New BSD License.
 
 Changelog
+   20170422 * Forked from Droopy
    20151025 * Global variables removed
             * Code refactoring and re-layout
             * Python 2 and 3 compatibility
@@ -87,6 +88,7 @@ import tempfile
 import socket
 import base64
 import functools
+import myprocess as mypro
 
 
 def _decode_str_if_py2(inputstr, encoding='utf-8'):
@@ -155,12 +157,13 @@ class DroopyFieldStorage(cgi.FieldStorage):
     def __init__(self, fp=None, headers=None, outerboundary=b'',
                  environ=os.environ, keep_blank_values=0, strict_parsing=0,
                  limit=None, encoding='utf-8', errors='replace',
-                 directory='.'):
+                 directory='.', processed_directory='processed'):
         """
         Adds 'directory' argument to FieldStorage.__init__.
         Retains compatibility with FieldStorage.__init__ (which involves magic)
         """
         self.directory = directory
+        self.processed_directory = processed_directory
         # Not only is cgi.FieldStorage full of magic, it's DIFFERENT
         # magic in Py2/Py3. Here's a case of the core library making
         # life difficult, in a class that's *supposed to be subclassed*!
@@ -203,9 +206,14 @@ class HTTPUploadHandler(httpserver.BaseHTTPRequestHandler):
         "Ensure provided."
         raise NotImplementedError("Must provide directory to host.")
 
+    @property
+    def processed_directory(self):
+        "Ensure provided."
+        raise NotImplementedError("Must provide processed_directory to host.")
+
     message = ''
     picture = ''
-    publish_files = False
+    publish_files = True
     file_mode = None
     protocol_version = 'HTTP/1.0'
     form_field = 'upfile'
@@ -302,7 +310,8 @@ class HTTPUploadHandler(httpserver.BaseHTTPRequestHandler):
             self.send_file(self.picture)
         # TODO Verify that this is path-injection proof
         elif name in self.published_files():
-            localpath = os.path.join(self.directory, name)
+            localpath = os.path.join(self.directory+'/'+self.processed_directory, name)
+            print('Seinding '+localpath)
             self.send_file(localpath)
         else:
             self.send_html(self.html("main"))
@@ -321,6 +330,7 @@ class HTTPUploadHandler(httpserver.BaseHTTPRequestHandler):
             #-- Handle multiple file upload
             if not isinstance(file_items, list):
                 file_items = [file_items]
+            received_files = []
             for item in file_items:
                 filename = _decode_str_if_py2(basename(item.filename), "utf-8")
                 if filename == "":
@@ -344,6 +354,10 @@ class HTTPUploadHandler(httpserver.BaseHTTPRequestHandler):
                 if self.file_mode is not None:
                     os.chmod(localpath, self.file_mode)
                 self.log_message("Received: %s", os.path.basename(localpath))
+                received_files.append(localpath)
+
+            # -- Process files
+            mypro.do_my_process(output_directory=self.directory+'/'+self.processed_directory, input_files=received_files)
 
             # -- Reply
             if self.publish_files:
@@ -383,10 +397,10 @@ class HTTPUploadHandler(httpserver.BaseHTTPRequestHandler):
         "Returns the list of files that should appear as download links."
         names = []
         # In py2, listdir() returns strings when the directory is a string.
-        for name in os.listdir(unicode(self.directory)):
+        for name in os.listdir(unicode(self.directory+'/'+self.processed_directory)):
             if name.startswith(DroopyFieldStorage.TMPPREFIX):
                 continue
-            npath = os.path.join(self.directory, name)
+            npath = os.path.join(self.directory+'/'+self.processed_directory, name)
             if os.path.isfile(npath):
                 names.append(name)
         names.sort(key=lambda s: s.lower())
@@ -416,11 +430,12 @@ def run(hostname='',
         templates=None,
         localisations=None,
         directory='.',
+        processed_directory='processed',
         timeout=3*60,
         picture=None,
         message='',
         file_mode=None,
-        publish_files=False,
+        publish_files=True,
         auth='',
         certfile=None,
         permitted_ciphers=(
@@ -440,6 +455,7 @@ def run(hostname='',
     socket.setdefaulttimeout(timeout)
     HTTPUploadHandler.templates = templates
     HTTPUploadHandler.directory = directory
+    HTTPUploadHandler.processed_directory = processed_directory
     HTTPUploadHandler.localisations = localisations
     HTTPUploadHandler.certfile = certfile
     HTTPUploadHandler.publish_files = publish_files
@@ -1014,11 +1030,13 @@ def parse_args(cmd=None, ignore_defaults=False):
                         help='port number to host droopy upon')
     parser.add_argument('-d', '--directory', type=str, default='.',
                         help='set the directory to upload files to')
+    parser.add_argument('-pd', '--processed_directory', type=str, default='processed',
+                        help='set the directory to download processed files from')
     parser.add_argument('-m', '--message', type=str, default='',
                         help='set the message')
     parser.add_argument('-p', '--picture', type=str, default='',
                         help='set the picture')
-    parser.add_argument('--publish-files', '--dl', action='store_true', default=False,
+    parser.add_argument('--publish-files', '--dl', action='store_true', default=True,
                         help='provide download links')
     parser.add_argument('-a', '--auth', type=str, default='',
                         help='set the authentication credentials, in form USER:PASS')
@@ -1074,9 +1092,9 @@ def main():
     "Encapsulating main prevents scope leakage and pleases linters."
     print('''\
      _____
-    |     \.----.-----.-----.-----.--.--.
-    |  --  |   _|  _  |  _  |  _  |  |  |
-    |_____/|__| |_____|_____|   __|___  |
+    |     \.----.-----.-----.-----.--.--.   +
+    |  --  |   _|  _  |  _  |  _  |  |  | +++++
+    |_____/|__| |_____|_____|   __|___  |   +
                             |__|  |_____|
     ''')
     term_args = parse_args(ignore_defaults=True)
@@ -1093,6 +1111,7 @@ def main():
         save_options(cfg)
         print("Options saved in {0}".format(cfg))
     print("Files will be uploaded to {0}\n".format(args['directory']))
+    print("Processed files will be downloaded from {0}\n".format(fullpath(args['processed_directory'])))
     proto = 'https' if args['ssl'] else 'http'
     print("HTTP server starting...",
           "Check it out at {0}://localhost:{1}".format(proto, args['port']))
@@ -1102,6 +1121,7 @@ def main():
             picture=args['picture'],
             message=args['message'],
             directory=args['directory'],
+            processed_directory=args['processed_directory'],
             file_mode=args['chmod'],
             publish_files=args['publish_files'],
             auth=args['auth'],
